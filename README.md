@@ -1,12 +1,8 @@
 # trackpad-input
 
-`trackpad-input` distinguishes trackpad gestures from mouse-wheel input and
-routes two-finger scrolling to pan. It is a small, framework-agnostic browser
-utility with no runtime dependencies.
-
-Most wheel helpers reduce every `wheel` event to a zoom delta. That works for a
-mouse wheel, but makes a trackpad feel wrong: two-finger movement is naturally
-two-dimensional and should usually pan a map, canvas, timeline, or workspace.
+Route trackpad panning separately from mouse-wheel and pinch zoom input.
+`trackpad-input` is framework-agnostic, has no runtime dependencies, and can
+connect to any component that exposes a drag or pan operation.
 
 ## Install
 
@@ -14,10 +10,7 @@ two-dimensional and should usually pan a map, canvas, timeline, or workspace.
 npm install trackpad-input
 ```
 
-## Route wheel input
-
-`WheelInputRouter` buffers an ambiguous leading frame for 40 ms, locks one
-decision for the gesture, and resets after 120 ms of input inactivity.
+## Usage
 
 ```ts
 import { WheelInputRouter } from 'trackpad-input';
@@ -25,66 +18,135 @@ import { WheelInputRouter } from 'trackpad-input';
 const surface = document.querySelector<HTMLElement>('.surface')!;
 
 const input = new WheelInputRouter<WheelEvent>({
-    onPan(event, { device }) {
-        // device is "trackpad" here.
-        camera.panBy(event.deltaX, event.deltaY);
+    onPan(event) {
+        dragController.moveBy({
+            x: -event.deltaX,
+            y: -event.deltaY,
+        });
     },
     onZoom(event, { device }) {
-        // device is "mouse", "trackpad" (pinch), or "unknown".
-        camera.zoomBy(-event.deltaY);
+        zoomController.zoomBy(-event.deltaY, { device });
+    },
+    onGestureEnd({ mode }) {
+        if (mode === 'pan') dragController.end();
     },
 });
 
-surface.addEventListener(
-    'wheel',
-    (event) => {
-        event.preventDefault();
-        input.route(event);
-    },
-    { passive: false },
-);
+const handleWheel = (event: WheelEvent) => {
+    event.preventDefault();
+    input.route(event);
+};
 
-// Call input.dispose() when the surface is removed.
+surface.addEventListener('wheel', handleWheel, { passive: false });
+
+// Cleanup
+surface.removeEventListener('wheel', handleWheel);
+input.dispose();
 ```
 
-Buffered samples are replayed in order. If a gesture starts vertically and a
-horizontal component arrives inside the decision window, the full gesture is
-routed to `onPan`, including its first frame.
+The drag and zoom controllers are application-owned. They can be DOM
+transforms, canvas viewports, editors, timelines, diagrams, 3D scenes, or any
+other interface that accepts relative movement.
 
-## Device distinction
+## `WheelInputRouter`
 
-Browsers do not expose the physical source of a `WheelEvent`. The package uses
-conservative, inspectable signals instead of pretending detection is perfect:
+```ts
+const input = new WheelInputRouter<WheelEvent>({
+    onPan(sample, input) {},
+    onZoom(sample, input) {},
+    onGestureEnd(input) {},
+    decisionTimeout: 40,
+    idleTimeout: 120,
+});
+```
 
-| Signal | Device | Route |
+### Options
+
+| Option | Required | Description |
 | --- | --- | --- |
-| Pixel-mode input with a horizontal component | Trackpad | Pan |
-| Pixel-mode `ctrlKey` input (browser pinch convention) | Trackpad | Zoom |
-| Line/page delta mode or legacy 120-unit notch fields | Mouse | Zoom |
-| Pure vertical pixel-mode input | Unknown | Briefly pending, then zoom |
+| `onPan(sample, input)` | Yes | Receives input assigned to drag or pan. |
+| `onZoom(sample, input)` | Yes | Receives mouse-wheel or pinch zoom input. |
+| `onGestureEnd(input)` | No | Runs when the current input gesture ends. |
+| `decisionTimeout` | No | Overrides the decision timeout in milliseconds. |
+| `idleTimeout` | No | Overrides the gesture idle timeout in milliseconds. |
 
-Pure vertical pixel input is genuinely ambiguous: it can be a high-resolution
-mouse or a perfectly vertical trackpad gesture. `trackpad-input` falls back to
-zoom rather than misrouting mouse-wheel input to pan. Once trackpad pan is
-detected, vertical and legacy-looking momentum frames stay in pan until the
-gesture ends.
+Each callback receives a routing result:
 
-## Low-level classification
+```ts
+interface RoutedWheelInput {
+    device: 'mouse' | 'trackpad' | 'unknown';
+    mode: 'pan' | 'zoom';
+}
+```
 
-Use `classifyWheelInput` for a stateless result or
-`WheelGestureClassifier` when you manage buffering and gesture lifetime
-yourself.
+### Methods
+
+#### `route(sample)`
+
+Accepts a `WheelEvent` or another object matching `WheelGestureSample`.
+
+```ts
+const decision = input.route(event);
+// "pan" | "zoom" | "pending"
+```
+
+#### `reset()`
+
+Clears the current gesture state while keeping the router reusable.
+
+```ts
+input.reset();
+```
+
+#### `dispose()`
+
+Clears the router and prevents it from routing additional input.
+
+```ts
+input.dispose();
+```
+
+## Classification API
+
+Use the stateless API when callback routing is not needed:
 
 ```ts
 import { classifyWheelInput } from 'trackpad-input';
 
 const result = classifyWheelInput(event);
-// { device: "mouse" | "trackpad" | "unknown",
-//   mode: "pan" | "zoom" | "pending" }
+// {
+//   device: "mouse" | "trackpad" | "unknown",
+//   mode: "pan" | "zoom" | "pending"
+// }
 ```
 
-The default timing constants are exported as `WHEEL_GESTURE_DECISION_MS` and
-`WHEEL_GESTURE_IDLE_MS`. Both can be overridden through `WheelInputRouter`.
+Use `WheelGestureClassifier` when gesture lifecycle is managed by the host:
+
+```ts
+import { WheelGestureClassifier } from 'trackpad-input';
+
+const classifier = new WheelGestureClassifier();
+
+classifier.classify(event);
+classifier.classifyDetailed(event);
+classifier.resolvePendingAsZoom();
+classifier.reset();
+```
+
+## Exports
+
+```ts
+WheelInputRouter
+WheelGestureClassifier
+classifyWheelInput
+inferWheelGestureMode
+hasExplicitMouseWheelSignature
+hasTrackpadPanEvidence
+WHEEL_GESTURE_DECISION_MS
+WHEEL_GESTURE_IDLE_MS
+```
+
+The package ships ESM, CommonJS, and TypeScript declarations.
 
 ## License
 
