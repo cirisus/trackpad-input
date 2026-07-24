@@ -19,9 +19,11 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts --clean",
+    "format": "prettier --write \"{src,test}/**/*.ts\" README.md",
+    "format:check": "prettier --check \"{src,test}/**/*.ts\" README.md",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm test && npm run build",
+    "check": "npm run format:check && npm run typecheck && npm test && npm run build",
     "prepublishOnly": "npm run check"
   },
   "repository": {
@@ -50,6 +52,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "prettier": "3.6.2",
     "tsup": "^8.5.0",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"

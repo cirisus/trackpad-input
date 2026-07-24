@@ -27,7 +27,10 @@ afterEach(() => {
 describe('classifyWheelInput', () => {
     it('identifies line/page and legacy-notch input as a mouse wheel', () => {
         expect(classifyWheelInput(sample({ deltaMode: 1, deltaY: 3 }))).toEqual(
-            { device: 'mouse', mode: 'zoom' },
+            {
+                device: 'mouse',
+                mode: 'zoom',
+            },
         );
         expect(
             classifyWheelInput(
@@ -38,12 +41,18 @@ describe('classifyWheelInput', () => {
                 }),
             ),
         ).toEqual({ device: 'mouse', mode: 'zoom' });
+        expect(
+            classifyWheelInput(sample({ deltaMode: 1, deltaX: 3, deltaY: 0 })),
+        ).toEqual({ device: 'mouse', mode: 'zoom' });
     });
 
     it('identifies two-axis pixel input as trackpad pan', () => {
-        expect(
-            classifyWheelInput(sample({ deltaX: 0.01, deltaY: 4 })),
-        ).toEqual({ device: 'trackpad', mode: 'pan' });
+        expect(classifyWheelInput(sample({ deltaX: 0.01, deltaY: 4 }))).toEqual(
+            {
+                device: 'trackpad',
+                mode: 'pan',
+            },
+        );
     });
 
     it('identifies browser ctrl-wheel pinch as trackpad zoom', () => {
@@ -61,6 +70,35 @@ describe('classifyWheelInput', () => {
         });
         expect(inferWheelGestureMode(sample({ deltaY: 3 }))).toBe('zoom');
     });
+
+    it('keeps zero movement pending and accepts samples without timestamps', () => {
+        expect(
+            classifyWheelInput({
+                ctrlKey: false,
+                deltaMode: 0,
+                deltaX: 0,
+                deltaY: 0,
+            }),
+        ).toEqual({ device: 'unknown', mode: 'pending' });
+    });
+
+    it('rejects non-finite input values', () => {
+        expect(() =>
+            classifyWheelInput(sample({ deltaX: Number.NaN })),
+        ).toThrow('deltaX must be a finite number');
+        expect(() =>
+            classifyWheelInput(
+                sample({ wheelDelta: Number.POSITIVE_INFINITY }),
+            ),
+        ).toThrow('wheelDelta must be a finite number');
+        expect(() =>
+            classifyWheelInput({
+                ctrlKey: false,
+                deltaMode: 0,
+                deltaX: 1,
+            } as WheelGestureSample),
+        ).toThrow('deltaY must be a finite number');
+    });
 });
 
 describe('WheelGestureClassifier', () => {
@@ -68,9 +106,9 @@ describe('WheelGestureClassifier', () => {
         const classifier = new WheelGestureClassifier();
 
         expect(classifier.classify(sample({ deltaY: 3 }))).toBe('pending');
-        expect(
-            classifier.classify(sample({ deltaX: 0.01, deltaY: 5 })),
-        ).toBe('pan');
+        expect(classifier.classify(sample({ deltaX: 0.01, deltaY: 5 }))).toBe(
+            'pan',
+        );
         expect(classifier.current).toEqual({
             device: 'trackpad',
             mode: 'pan',
@@ -104,6 +142,15 @@ describe('WheelGestureClassifier', () => {
                 sample({ deltaY: 3, wheelDelta: -120 }),
             ),
         ).toEqual({ device: 'mouse', mode: 'zoom' });
+    });
+
+    it('does not let a zero movement frame lock a new gesture', () => {
+        const classifier = new WheelGestureClassifier();
+
+        expect(classifier.classify(sample())).toBe('pending');
+        expect(classifier.classify(sample({ deltaX: 2, deltaY: 3 }))).toBe(
+            'pan',
+        );
     });
 });
 
@@ -142,6 +189,24 @@ describe('WheelInputRouter', () => {
         router.dispose();
     });
 
+    it('does not emit zero movement frames', () => {
+        vi.useFakeTimers();
+        const output: string[] = [];
+        const router = new WheelInputRouter({
+            onPan: () => output.push('pan'),
+            onZoom: () => output.push('zoom'),
+        });
+
+        expect(router.route(sample())).toBe('pending');
+        vi.advanceTimersByTime(WHEEL_GESTURE_DECISION_MS);
+        expect(output).toEqual([]);
+        expect(router.route(sample({ deltaX: 1 }))).toBe('pan');
+        expect(output).toEqual(['pan']);
+        expect(router.route(sample())).toBe('pan');
+        expect(output).toEqual(['pan']);
+        router.dispose();
+    });
+
     it('ends and resets a gesture after arrival-time idle', () => {
         vi.useFakeTimers();
         const output: string[] = [];
@@ -157,11 +222,7 @@ describe('WheelInputRouter', () => {
         vi.advanceTimersByTime(WHEEL_GESTURE_IDLE_MS);
         router.route(sample({ deltaY: 3, wheelDelta: -120 }));
 
-        expect(output).toEqual([
-            'pan',
-            'end:trackpad',
-            'zoom:mouse',
-        ]);
+        expect(output).toEqual(['pan', 'end:trackpad', 'zoom:mouse']);
         router.dispose();
     });
 
@@ -174,5 +235,26 @@ describe('WheelInputRouter', () => {
                     idleTimeout: Number.NaN,
                 }),
         ).toThrow(TypeError);
+        expect(
+            () =>
+                new WheelInputRouter({
+                    onPan: () => undefined,
+                    onZoom: () => undefined,
+                    decisionTimeout: 120,
+                    idleTimeout: 120,
+                }),
+        ).toThrow('decisionTimeout must be less than idleTimeout');
+    });
+
+    it('rejects routing after disposal', () => {
+        const router = new WheelInputRouter({
+            onPan: () => undefined,
+            onZoom: () => undefined,
+        });
+
+        router.dispose();
+        expect(() => router.route(sample({ deltaX: 1 }))).toThrow(
+            'WheelInputRouter has been disposed',
+        );
     });
 });

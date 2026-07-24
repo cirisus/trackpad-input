@@ -7,7 +7,7 @@ export interface WheelGestureSample {
     deltaMode: number;
     deltaX: number;
     deltaY: number;
-    timeStamp: number;
+    timeStamp?: number;
     wheelDelta?: number;
     wheelDeltaX?: number;
     wheelDeltaY?: number;
@@ -35,8 +35,7 @@ const isLegacyWheelNotch = (value: number | undefined) => {
     const notchCount = Math.abs(value) / LEGACY_WHEEL_NOTCH;
     return (
         notchCount >= 1 &&
-        Math.abs(notchCount - Math.round(notchCount)) <=
-            LEGACY_NOTCH_TOLERANCE
+        Math.abs(notchCount - Math.round(notchCount)) <= LEGACY_NOTCH_TOLERANCE
     );
 };
 
@@ -45,13 +44,10 @@ const hasLegacyMouseWheelSignature = (sample: WheelGestureSample) =>
     isLegacyWheelNotch(sample.wheelDeltaX) ||
     isLegacyWheelNotch(sample.wheelDeltaY);
 
-export const hasExplicitMouseWheelSignature = (
-    sample: WheelGestureSample,
-) =>
+export const hasExplicitMouseWheelSignature = (sample: WheelGestureSample) =>
     !sample.ctrlKey &&
-    sample.deltaX === 0 &&
     (sample.deltaMode !== DOM_DELTA_PIXEL ||
-        hasLegacyMouseWheelSignature(sample));
+        (sample.deltaX === 0 && hasLegacyMouseWheelSignature(sample)));
 
 export const hasTrackpadPanEvidence = (sample: WheelGestureSample) =>
     !sample.ctrlKey &&
@@ -65,16 +61,45 @@ const isAmbiguousPixelSample = (sample: WheelGestureSample) =>
     sample.deltaY !== 0 &&
     !hasLegacyMouseWheelSignature(sample);
 
-/**
- * Classify a single wheel sample without gesture history.
- *
- * Pure vertical pixel-mode input is reported as unknown/pending because the
- * WheelEvent API does not reveal its physical source. Use WheelInputRouter to
- * buffer that ambiguity briefly and keep one decision for the full gesture.
- */
-export const classifyWheelInput = (
+const hasMovement = (sample: WheelGestureSample) =>
+    sample.deltaX !== 0 || sample.deltaY !== 0;
+
+const assertValidWheelGestureSample = (sample: WheelGestureSample) => {
+    if (typeof sample.ctrlKey !== 'boolean') {
+        throw new TypeError('ctrlKey must be a boolean');
+    }
+
+    const requiredNumbers: Array<[string, number]> = [
+        ['deltaMode', sample.deltaMode],
+        ['deltaX', sample.deltaX],
+        ['deltaY', sample.deltaY],
+    ];
+    requiredNumbers.forEach(([name, value]) => {
+        if (!Number.isFinite(value)) {
+            throw new TypeError(`${name} must be a finite number`);
+        }
+    });
+
+    const optionalNumbers: Array<[string, number | undefined]> = [
+        ['timeStamp', sample.timeStamp],
+        ['wheelDelta', sample.wheelDelta],
+        ['wheelDeltaX', sample.wheelDeltaX],
+        ['wheelDeltaY', sample.wheelDeltaY],
+    ];
+    optionalNumbers.forEach(([name, value]) => {
+        if (value !== undefined && !Number.isFinite(value)) {
+            throw new TypeError(`${name} must be a finite number`);
+        }
+    });
+};
+
+const classifyValidWheelInput = (
     sample: WheelGestureSample,
 ): WheelInputClassification => {
+    if (!hasMovement(sample)) {
+        return { device: 'unknown', mode: 'pending' };
+    }
+
     if (sample.ctrlKey) {
         return {
             device:
@@ -99,6 +124,20 @@ export const classifyWheelInput = (
 };
 
 /**
+ * Classify a single wheel sample without gesture history.
+ *
+ * Pure vertical pixel-mode input is reported as unknown/pending because the
+ * WheelEvent API does not reveal its physical source. Use WheelInputRouter to
+ * buffer that ambiguity briefly and keep one decision for the full gesture.
+ */
+export const classifyWheelInput = (
+    sample: WheelGestureSample,
+): WheelInputClassification => {
+    assertValidWheelGestureSample(sample);
+    return classifyValidWheelInput(sample);
+};
+
+/**
  * Return an immediate pan/zoom fallback for code that cannot buffer input.
  */
 export const inferWheelGestureMode = (
@@ -116,6 +155,14 @@ export class WheelGestureClassifier {
     private classification: RoutedWheelInput | null = null;
 
     classifyDetailed(sample: WheelGestureSample): WheelInputClassification {
+        assertValidWheelGestureSample(sample);
+
+        if (!hasMovement(sample)) {
+            return (
+                this.classification ?? { device: 'unknown', mode: 'pending' }
+            );
+        }
+
         if (sample.ctrlKey) {
             this.classification = {
                 device:
@@ -142,7 +189,7 @@ export class WheelGestureClassifier {
             return this.classification;
         }
 
-        const next = classifyWheelInput(sample);
+        const next = classifyValidWheelInput(sample);
         if (next.mode !== 'pending') {
             this.classification = next;
         }
@@ -208,13 +255,24 @@ export class WheelInputRouter<
             options.idleTimeout ?? WHEEL_GESTURE_IDLE_MS,
             'idleTimeout',
         );
+        if (this.decisionTimeout >= this.idleTimeout) {
+            throw new RangeError(
+                'decisionTimeout must be less than idleTimeout',
+            );
+        }
     }
 
     route(sample: Sample): WheelGestureDecision {
-        if (this.disposed) return 'pending';
+        if (this.disposed) {
+            throw new Error('WheelInputRouter has been disposed');
+        }
 
-        this.refreshIdleTimer();
         const classification = this.classifier.classifyDetailed(sample);
+        this.refreshIdleTimer();
+
+        if (!hasMovement(sample)) {
+            return classification.mode;
+        }
 
         if (classification.mode === 'pending') {
             this.pendingSamples.push(sample);

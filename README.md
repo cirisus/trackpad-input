@@ -62,13 +62,13 @@ const input = new WheelInputRouter<WheelEvent>({
 
 ### Options
 
-| Option | Required | Description |
-| --- | --- | --- |
-| `onPan(sample, input)` | Yes | Receives input assigned to drag or pan. |
-| `onZoom(sample, input)` | Yes | Receives mouse-wheel or pinch zoom input. |
-| `onGestureEnd(input)` | No | Runs when the current input gesture ends. |
-| `decisionTimeout` | No | Overrides the decision timeout in milliseconds. |
-| `idleTimeout` | No | Overrides the gesture idle timeout in milliseconds. |
+| Option                  | Required | Description                                                                      |
+| ----------------------- | -------- | -------------------------------------------------------------------------------- |
+| `onPan(sample, input)`  | Yes      | Receives input assigned to drag or pan.                                          |
+| `onZoom(sample, input)` | Yes      | Receives mouse-wheel or pinch zoom input.                                        |
+| `onGestureEnd(input)`   | No       | Runs when the current input gesture ends.                                        |
+| `decisionTimeout`       | No       | Overrides the decision timeout in milliseconds. Must be less than `idleTimeout`. |
+| `idleTimeout`           | No       | Overrides the gesture idle timeout in milliseconds.                              |
 
 Each callback receives a routing result:
 
@@ -76,6 +76,22 @@ Each callback receives a routing result:
 interface RoutedWheelInput {
     device: 'mouse' | 'trackpad' | 'unknown';
     mode: 'pan' | 'zoom';
+}
+```
+
+The routed sample must match this interface. `WheelEvent` can be passed
+directly.
+
+```ts
+interface WheelGestureSample {
+    ctrlKey: boolean;
+    deltaMode: number;
+    deltaX: number;
+    deltaY: number;
+    timeStamp?: number;
+    wheelDelta?: number;
+    wheelDeltaX?: number;
+    wheelDeltaY?: number;
 }
 ```
 
@@ -89,6 +105,9 @@ Accepts a `WheelEvent` or another object matching `WheelGestureSample`.
 const decision = input.route(event);
 // "pan" | "zoom" | "pending"
 ```
+
+The numeric input fields must be finite. Calling `route` after `dispose`
+throws an error.
 
 #### `reset()`
 
@@ -136,14 +155,16 @@ classifier.reset();
 ## Exports
 
 ```ts
-WheelInputRouter
-WheelGestureClassifier
-classifyWheelInput
-inferWheelGestureMode
-hasExplicitMouseWheelSignature
-hasTrackpadPanEvidence
-WHEEL_GESTURE_DECISION_MS
-WHEEL_GESTURE_IDLE_MS
+import {
+    WHEEL_GESTURE_DECISION_MS,
+    WHEEL_GESTURE_IDLE_MS,
+    WheelGestureClassifier,
+    WheelInputRouter,
+    classifyWheelInput,
+    hasExplicitMouseWheelSignature,
+    hasTrackpadPanEvidence,
+    inferWheelGestureMode,
+} from 'trackpad-input';
 ```
 
 The package ships ESM, CommonJS, and TypeScript declarations.
