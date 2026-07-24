@@ -1,6 +1,6 @@
 {
   "name": "trackpad-input",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Distinguish trackpad gestures from mouse-wheel input and route two-finger scrolling to pan.",
   "type": "module",
   "main": "./dist/index.cjs",
