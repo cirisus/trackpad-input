@@ -1,0 +1,57 @@
+{
+  "name": "trackpad-input",
+  "version": "0.1.0",
+  "description": "Distinguish trackpad gestures from mouse-wheel input and route two-finger scrolling to pan.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test && npm run build",
+    "prepublishOnly": "npm run check"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cirisus/trackpad-input.git"
+  },
+  "homepage": "https://github.com/cirisus/trackpad-input#readme",
+  "bugs": {
+    "url": "https://github.com/cirisus/trackpad-input/issues"
+  },
+  "keywords": [
+    "trackpad",
+    "touchpad",
+    "wheel",
+    "pan",
+    "gesture",
+    "input"
+  ],
+  "author": "cirisus",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}
